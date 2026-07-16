@@ -103,18 +103,38 @@ const mongoClient = new MongoClient(uri, {
 });
 
 let db: any = null;
+let connectionPromise: Promise<any> | null = null;
 
 async function connectToMongo() {
-  try {
-    await mongoClient.connect();
-    db = mongoClient.db("synergi");
-    console.log("Successfully connected to MongoDB Atlas!");
-  } catch (err) {
-    console.error("Failed to connect to MongoDB Atlas (using local DB fallback):", err);
+  if (db) return db;
+  if (!connectionPromise) {
+    connectionPromise = mongoClient.connect()
+      .then(client => {
+        db = client.db("synergi");
+        console.log("Successfully connected to MongoDB Atlas!");
+        return db;
+      })
+      .catch(err => {
+        console.error("Failed to connect to MongoDB Atlas (using local DB fallback):", err);
+        connectionPromise = null;
+        throw err;
+      });
   }
+  return connectionPromise;
 }
 
-connectToMongo();
+// Initial connection attempt
+connectToMongo().catch(() => {});
+
+// Middleware to ensure DB connection is established/retried on API requests
+app.use("/api/db", async (req, res, next) => {
+  try {
+    await connectToMongo();
+  } catch (err) {
+    // Suppress connection errors here so routes can use the local DB fallback
+  }
+  next();
+});
 
 // Create uploads directory if it doesn't exist
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
@@ -1333,7 +1353,7 @@ app.post("/api/db/batch", async (req, res) => {
 
 // Start server and handle Vite / Production build
 async function start() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
