@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   sendPasswordResetEmail,
   updateProfile
 } from "firebase/auth";
@@ -248,7 +250,96 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
     }
   };
 
-  // Google Login
+  // Helper to handle successful google authentication (shared by popup and redirect flows)
+  const handleSuccessfulAuth = async (user: any) => {
+    const userEmail = user.email?.toLowerCase().trim() || "";
+    const isDev = userEmail === "mis@ipanelklean.com" || userEmail.endsWith("ipanelklean.com");
+
+    // 1. First, check if a profile already exists for this exact Firebase Auth UID
+    const snapByUid = await getDoc(doc(db, "users", user.uid));
+    if (snapByUid.exists()) {
+      const uData = snapByUid.data();
+      if (uData.status !== "active") {
+        setError(`Your account status is currently ${uData.status || "inactive"}. Please contact the administrator.`);
+        await auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      // Auto-promote developer/owner to admin to avoid permission blocks
+      if (isDev && uData.role !== "admin") {
+        const updated = { ...uData, role: "admin" as const };
+        await setDoc(doc(db, "users", user.uid), updated, { merge: true });
+        onSuccess("admin", updated);
+      } else {
+        onSuccess(uData.role, uData);
+      }
+      return;
+    }
+
+    // 2. If no profile exists by UID, check if a profile is pre-registered under their email coordinate
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("email", "==", userEmail));
+    const querySnapshot = await getDocs(q);
+    
+    let preRegisteredDoc: any = null;
+    let preRegisteredId: string = "";
+
+    querySnapshot.forEach((docSnap) => {
+      preRegisteredDoc = docSnap.data();
+      preRegisteredId = docSnap.id;
+    });
+
+    if (preRegisteredDoc) {
+      if (preRegisteredDoc.status !== "active") {
+        setError(`Your account status is currently ${preRegisteredDoc.status || "inactive"}. Please contact the administrator.`);
+        await auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      // Relink the pre-registered profile to the actual Google UID
+      const updatedProfile = {
+        ...preRegisteredDoc,
+        uid: user.uid, // set the authentic auth UID
+        displayName: preRegisteredDoc.displayName || user.displayName || "Google User",
+        phone: preRegisteredDoc.phone || user.phoneNumber || ""
+      };
+
+      // Save under the new authentic Google UID
+      await setDoc(doc(db, "users", user.uid), updatedProfile);
+
+      // Delete the temporary pre-registered custom ID document if they were different to keep the DB clean
+      if (preRegisteredId !== user.uid) {
+        try {
+          await deleteDoc(doc(db, "users", preRegisteredId));
+        } catch (delErr) {
+          console.warn("Failed to clean up pre-registered temporary ID document:", delErr);
+        }
+      }
+
+      onSuccess(updatedProfile.role, updatedProfile);
+    } else if (isDev) {
+      // Auto-create for sandbox developers to prevent lockout
+      const newProfile = {
+        uid: user.uid,
+        email: userEmail,
+        displayName: user.displayName || "Developer Sandbox",
+        role: "admin" as const,
+        status: "active" as const,
+        phone: user.phoneNumber || "",
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, "users", user.uid), newProfile);
+      onSuccess("admin", newProfile);
+    } else {
+      // Not pre-registered and not a developer: Block login!
+      setError("Your email has not been registered yet. Please contact the Admin/Super Admin to register your workspace seat first.");
+      await auth.signOut();
+    }
+  };
+
+  // Google Login (tries popup, falls back to redirect)
   const handleGoogleLogin = async () => {
     setError(null);
     setErrorDetails(null);
@@ -256,100 +347,55 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-      const userEmail = user.email?.toLowerCase().trim() || "";
-
-      const isDev = userEmail === "mis@ipanelklean.com" || userEmail.endsWith("ipanelklean.com");
-
-      // 1. First, check if a profile already exists for this exact Firebase Auth UID
-      const snapByUid = await getDoc(doc(db, "users", user.uid));
-      if (snapByUid.exists()) {
-        const uData = snapByUid.data();
-        if (uData.status !== "active") {
-          setError(`Your account status is currently ${uData.status || "inactive"}. Please contact the administrator.`);
-          await auth.signOut();
-          setLoading(false);
-          return;
-        }
-
-        // Auto-promote developer/owner to admin to avoid permission blocks
-        if (isDev && uData.role !== "admin") {
-          const updated = { ...uData, role: "admin" as const };
-          await setDoc(doc(db, "users", user.uid), updated, { merge: true });
-          onSuccess("admin", updated);
-        } else {
-          onSuccess(uData.role, uData);
-        }
-        return;
-      }
-
-      // 2. If no profile exists by UID, check if a profile is pre-registered under their email coordinate
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "==", userEmail));
-      const querySnapshot = await getDocs(q);
-      
-      let preRegisteredDoc: any = null;
-      let preRegisteredId: string = "";
-
-      querySnapshot.forEach((docSnap) => {
-        preRegisteredDoc = docSnap.data();
-        preRegisteredId = docSnap.id;
-      });
-
-      if (preRegisteredDoc) {
-        if (preRegisteredDoc.status !== "active") {
-          setError(`Your account status is currently ${preRegisteredDoc.status || "inactive"}. Please contact the administrator.`);
-          await auth.signOut();
-          setLoading(false);
-          return;
-        }
-
-        // Relink the pre-registered profile to the actual Google UID
-        const updatedProfile = {
-          ...preRegisteredDoc,
-          uid: user.uid, // set the authentic auth UID
-          displayName: preRegisteredDoc.displayName || user.displayName || "Google User",
-          phone: preRegisteredDoc.phone || user.phoneNumber || ""
-        };
-
-        // Save under the new authentic Google UID
-        await setDoc(doc(db, "users", user.uid), updatedProfile);
-
-        // Delete the temporary pre-registered custom ID document if they were different to keep the DB clean
-        if (preRegisteredId !== user.uid) {
-          try {
-            await deleteDoc(doc(db, "users", preRegisteredId));
-          } catch (delErr) {
-            console.warn("Failed to clean up pre-registered temporary ID document:", delErr);
-          }
-        }
-
-        onSuccess(updatedProfile.role, updatedProfile);
-      } else if (isDev) {
-        // Auto-create for sandbox developers to prevent lockout
-        const newProfile = {
-          uid: user.uid,
-          email: userEmail,
-          displayName: user.displayName || "Developer Sandbox",
-          role: "admin" as const,
-          status: "active" as const,
-          phone: user.phoneNumber || "",
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(doc(db, "users", user.uid), newProfile);
-        onSuccess("admin", newProfile);
-      } else {
-        // Not pre-registered and not a developer: Block login!
-        setError("Your email has not been registered yet. Please contact the Admin/Super Admin to register your workspace seat first.");
-        await auth.signOut();
-      }
+      await handleSuccessfulAuth(result.user);
     } catch (err: any) {
-      console.warn("Google login warning:", err);
-      setError(err.message || "Google Login failed.");
-    } finally {
-      setLoading(false);
+      console.warn("Google popup login error/warning:", err);
+      const isPopupError = 
+        err?.code === "auth/popup-blocked" || 
+        err?.message?.includes("popup-blocked") || 
+        err?.code === "auth/popup-closed-by-user" ||
+        err?.message?.includes("popup") ||
+        err?.message?.includes("closed");
+        
+      if (isPopupError) {
+        setInfo("Popup was blocked or closed. Switching to secure redirect-based sign-in...");
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (redirErr: any) {
+          console.error("Google redirect login failed:", redirErr);
+          setError("Google Login failed (popup blocked/closed, and redirect failed to initiate). Please check your browser permissions.");
+          setLoading(false);
+        }
+      } else {
+        setError(err.message || "Google Login failed.");
+        setLoading(false);
+      }
     }
   };
+
+  // Check for redirect result on mount
+  useEffect(() => {
+    let active = true;
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user && active) {
+          setInfo("Successfully signed in via Google redirect! Loading profile...");
+          setLoading(true);
+          await handleSuccessfulAuth(result.user);
+        }
+      } catch (err: any) {
+        if (active) {
+          console.error("Google redirect result error:", err);
+          setError(err.message || "Google Redirect Sign-In failed.");
+        }
+      }
+    };
+    checkRedirect();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Forgot Password
   const handleForgotPassword = async (e: React.FormEvent) => {
