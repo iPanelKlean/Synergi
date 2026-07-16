@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
-import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import nodemailer from "nodemailer";
 
@@ -1354,7 +1353,8 @@ app.post("/api/db/batch", async (req, res) => {
 // Start server and handle Vite / Production build
 async function start() {
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-    const vite = await createViteServer({
+    const { createServer } = await import("vite");
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
