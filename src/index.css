@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-blue-50: #f3f7fa;
+  --color-blue-100: #e2edf5;
+  --color-blue-200: #cadbe9;
+  --color-blue-300: #a5c1d8;
+  --color-blue-400: #779fc2;
+  --color-blue-500: #4776a3;
+  --color-blue-600: #224870;
+  --color-blue-700: #1c3b5c;
+  --color-blue-800: #19314c;
+  --color-blue-900: #182a3e;
+  --color-blue-950: #0f1a26;
+}
+
+button,
+[role="button"],
+a,
+select,
+input[type="submit"],
+input[type="button"],
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
+}
+
+/* Printable Pass Card Styles */
+@media print {
+  /* Hide everything in the document by default */
+  body * {
+    visibility: hidden !important;
+  }
+  
+  /* Make only the designated printable pass card and its children visible */
+  .printable-pass-card,
+  .printable-pass-card * {
+    visibility: visible !important;
+  }
+  
+  /* Style the printable pass card specifically for print media */
+  .printable-pass-card {
+    position: absolute !important;
+    left: 50% !important;
+    top: 5% !important;
+    transform: translateX(-50%) !important;
+    width: 380px !important;
+    border: 3px solid #0f172a !important;
+    border-radius: 24px !important;
+    padding: 30px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+  }
+  
+  /* Completely hide buttons or non-printable parts within the printable pass card */
+  .no-print,
+  .no-print * {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+  }
+}

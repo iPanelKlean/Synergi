@@ -1,0 +1,240 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based attributes",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff", "customer"] },
+        "status": { "type": "string", "enum": ["active", "inactive", "suspended"] },
+        "phone": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName", "role", "status"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Seat or visit booking requests from customers or visitors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "numSeats": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "active", "inactive"] },
+        "seatNumber": { "type": "string" },
+        "type": { "type": "string", "enum": ["seat", "visit"] },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "userName", "status", "type", "createdAt"]
+    },
+    "Seat": {
+      "title": "Seat",
+      "description": "A specific desk or seat space configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "string" },
+        "occupied": { "type": "boolean" },
+        "occupiedByEmail": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "status": { "type": "string", "enum": ["available", "occupied", "maintenance"] }
+      },
+      "required": ["number", "occupied", "status"]
+    },
+    "ConferenceRoom": {
+      "title": "ConferenceRoom",
+      "description": "A conference or meeting room configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "capacity": { "type": "number" },
+        "pricePerHour": { "type": "number" },
+        "status": { "type": "string", "enum": ["available", "maintenance"] }
+      },
+      "required": ["name", "capacity", "pricePerHour"]
+    },
+    "ConferenceBooking": {
+      "title": "ConferenceBooking",
+      "description": "Booking details for conference/meeting rooms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "roomId": { "type": "string" },
+        "roomName": { "type": "string" },
+        "date": { "type": "string" },
+        "slot": { "type": "string" },
+        "durationType": { "type": "string", "enum": ["hour", "half_day", "full_day"] },
+        "totalPrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "roomId", "date", "slot", "durationType", "totalPrice", "status", "createdAt"]
+    },
+    "Agreement": {
+      "title": "Agreement",
+      "description": "Rental and Seat licenses tracked for users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "seatNumber": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "expired", "pending_signature"] },
+        "rentAmount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "userName", "startDate", "endDate", "status", "rentAmount"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "User fee tracking, monthly dues, and screenshots upload",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "month": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["paid", "pending", "overdue"] },
+        "bankName": { "type": "string" },
+        "paymentDate": { "type": "string" },
+        "utr": { "type": "string" },
+        "screenshotUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "month", "amount", "status"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "User raised support ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "category": { "type": "string", "enum": ["Internet", "Cleaning", "Electricity", "Furniture", "AC", "Tea/Coffee", "Plumbing", "Water", "Access control"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] },
+        "assignedStaff": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "category", "description", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app system notification for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "read": { "type": "boolean" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userEmail", "title", "body", "read", "createdAt"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global config values managed by super admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "qrCodeUrl": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankAddress": { "type": "string" },
+        "accountNo": { "type": "string" },
+        "ifscCode": { "type": "string" },
+        "companyName": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "whatsapp": { "type": "string" }
+      },
+      "required": ["companyName", "address"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User feedback and rating ratings on the workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "author": { "type": "string" },
+        "avatarLetter": { "type": "string" },
+        "avatarBg": { "type": "string" },
+        "isLocalGuide": { "type": "boolean" },
+        "reviewsCount": { "type": "number" },
+        "photosCount": { "type": "number" },
+        "timeAgo": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "timestamp": { "type": "number" },
+        "published": { "type": "boolean" },
+        "ownerResponse": {
+          "type": "object",
+          "properties": {
+            "timeAgo": { "type": "string" },
+            "text": { "type": "string" }
+          }
+        }
+      },
+      "required": ["author", "rating", "text", "timestamp", "published"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of workspace user profiles and roles"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Seat and visit request collection"
+    },
+    "/seats/{seatId}": {
+      "schema": "Seat",
+      "description": "Physical seats list and occupancy details"
+    },
+    "/conferenceRooms/{roomId}": {
+      "schema": "ConferenceRoom",
+      "description": "Conference and meeting rooms setup"
+    },
+    "/conferenceBookings/{bookingId}": {
+      "schema": "ConferenceBooking",
+      "description": "Slots and dates reserved for conference rooms"
+    },
+    "/agreements/{agreementId}": {
+      "schema": "Agreement",
+      "description": "Active license agreements of members"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Invoices and payment records with verification details"
+    },
+    "/complaints/{complaintId}": {
+      "schema": "Complaint",
+      "description": "Support tickets and complaints filed by users"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "In-app notifications log"
+    },
+    "/settings/{settingId}": {
+      "schema": "Setting",
+      "description": "Super admin payment settings and bank profile"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "User reviews submitted for admin approval"
+    }
+  }
+}

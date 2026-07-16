@@ -1,0 +1,6 @@
+{
+  "name": "Synergi Coworking Space",
+  "description": "A modern Coworking Space Management Platform for booking seats, conference rooms, managing agreements, payments, complaints, and visitor access.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
