@@ -97,8 +97,8 @@ const rawUri = process.env.MONGODB_URI || "mongodb+srv://synergi:Ipk%40%231234@c
 const uri = sanitizeMongoUri(rawUri);
 console.log("Connecting to MongoDB Atlas...");
 const mongoClient = new MongoClient(uri, {
-  connectTimeoutMS: 5000,
-  serverSelectionTimeoutMS: 5000
+  connectTimeoutMS: 2500,
+  serverSelectionTimeoutMS: 2500
 });
 
 let db: any = null;
@@ -149,8 +149,31 @@ try {
 app.use("/uploads", express.static(UPLOADS_DIR));
 
 // REST API routes for mock-Firestore database proxy
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", connected: !!db });
+app.get("/api/health", async (req, res) => {
+  try {
+    const connectedDb = await connectToMongo();
+    await connectedDb.command({ ping: 1 });
+    res.json({
+      status: "ok",
+      connected: true,
+      usingLocalFallback: false,
+      database: "synergi",
+      error: null,
+      vercel: !!process.env.VERCEL,
+      envUriConfigured: !!process.env.MONGODB_URI
+    });
+  } catch (err: any) {
+    console.warn("Health check MongoDB connection failed:", err.message || err);
+    res.json({
+      status: "ok",
+      connected: false,
+      usingLocalFallback: true,
+      database: null,
+      error: err.message || String(err),
+      vercel: !!process.env.VERCEL,
+      envUriConfigured: !!process.env.MONGODB_URI
+    });
+  }
 });
 
 async function sendMailHelper(to: string, subject: string, html: string) {

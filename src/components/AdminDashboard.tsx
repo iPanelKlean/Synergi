@@ -281,6 +281,48 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
     "analytics"
   );
   const [selectedRevenueYear, setSelectedRevenueYear] = useState<number>(2026);
+  const [dbStatus, setDbStatus] = useState<{
+    connected: boolean;
+    usingLocalFallback: boolean;
+    database: string | null;
+    error: string | null;
+    vercel: boolean;
+    envUriConfigured: boolean;
+  } | null>(null);
+  const [checkingDb, setCheckingDb] = useState(false);
+  const [showDbDiagnosticsModal, setShowDbDiagnosticsModal] = useState(false);
+
+  const checkDbConnection = async () => {
+    setCheckingDb(true);
+    try {
+      const res = await fetch("/api/health");
+      const data = await res.json();
+      setDbStatus({
+        connected: !!data.connected,
+        usingLocalFallback: !!data.usingLocalFallback,
+        database: data.database || null,
+        error: data.error || null,
+        vercel: !!data.vercel,
+        envUriConfigured: !!data.envUriConfigured
+      });
+    } catch (err: any) {
+      setDbStatus({
+        connected: false,
+        usingLocalFallback: true,
+        database: null,
+        error: err.message || String(err),
+        vercel: false,
+        envUriConfigured: false
+      });
+    } finally {
+      setCheckingDb(false);
+    }
+  };
+
+  useEffect(() => {
+    checkDbConnection();
+  }, []);
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const hasLoadedSettingsRef = React.useRef(false);
 
@@ -2437,7 +2479,29 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
               <span className="text-xxs font-bold text-blue-600 uppercase tracking-widest block font-mono">
                 {currentUserProfile.role === "admin" ? "Synergi Coworking Super Admin Access" : currentUserProfile.role === "staff" ? "Synergi Coworking Admin Access" : currentUserProfile.role === "staff_member" ? "Synergi Coworking Staff Access" : "Synergi Coworking Member Access"}
               </span>
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 capitalize">{activeTab}</h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 capitalize">{activeTab}</h1>
+                
+                {checkingDb ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 animate-pulse border border-slate-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                    Testing DB...
+                  </span>
+                ) : dbStatus ? (
+                  <button
+                    onClick={() => setShowDbDiagnosticsModal(true)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all border shadow-xs cursor-pointer ${
+                      dbStatus.connected
+                        ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
+                        : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 animate-pulse"
+                    }`}
+                    title="Click for Database Connection Diagnostics"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${dbStatus.connected ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                    {dbStatus.connected ? "DB Live (Atlas)" : "DB Error - Click to diagnose"}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
           
@@ -5950,6 +6014,123 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Database Connection Diagnostics Modal */}
+      {showDbDiagnosticsModal && dbStatus && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 sm:p-8 animate-in zoom-in-95 duration-200 text-left">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
+                  🔌 Database Connection Diagnostics
+                </h3>
+                <p className="text-xxs text-slate-500 mt-0.5 font-medium">Verify your full-stack database connection configuration and health status.</p>
+              </div>
+              <button
+                onClick={() => setShowDbDiagnosticsModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs font-semibold text-slate-700">
+              {/* Status Section */}
+              <div className="p-4 rounded-2xl border flex flex-col gap-2 bg-slate-50 border-slate-150">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold">MongoDB Atlas Connection:</span>
+                  {dbStatus.connected ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase">
+                      Active & Live
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200 uppercase animate-pulse">
+                      Connection Failed
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold">Runtime Platform Environment:</span>
+                  <span className="text-slate-800 font-bold bg-slate-200 px-2 py-0.5 rounded text-[10px] font-mono">
+                    {dbStatus.vercel ? "Vercel Serverless" : "Local / Container Server"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold">MONGODB_URI Env Variable:</span>
+                  {dbStatus.envUriConfigured ? (
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold">
+                      Configured in Vercel
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded text-[10px] font-bold">
+                      Default Fallback URI Active
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold">Local Write Fallback (In-Memory):</span>
+                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold">
+                    {dbStatus.vercel ? "Read-Only (Data resets on restart)" : "Writable (/local_db.json)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Error Information (if connection failed) */}
+              {!dbStatus.connected && (
+                <div className="p-3 bg-rose-50 border border-rose-150 rounded-xl space-y-1.5">
+                  <h4 className="text-xxs font-bold text-rose-800 uppercase tracking-wider">⚠️ Connection Error Details:</h4>
+                  <p className="text-[11px] font-mono font-medium text-rose-700 break-all leading-relaxed whitespace-pre-wrap bg-white p-2 rounded-lg border border-rose-100">
+                    {dbStatus.error || "Timeout or network unreachable while connecting to MongoDB Atlas server."}
+                  </p>
+                </div>
+              )}
+
+              {/* Steps to Fix Guide */}
+              <div className="space-y-2">
+                <h4 className="text-xxs font-extrabold text-slate-800 uppercase tracking-widest block border-b border-slate-100 pb-1">
+                  🛠️ How to resolve this issue:
+                </h4>
+                <ol className="list-decimal pl-4 space-y-2 text-xxs text-slate-600 font-medium leading-relaxed">
+                  <li>
+                    <strong className="text-slate-800">Add the MONGODB_URI Environment Variable:</strong>
+                    <p className="mt-0.5 text-slate-500">Go to your <strong className="text-slate-700">Vercel Project Dashboard ➜ Settings ➜ Environment Variables</strong>, add <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-800 font-bold">MONGODB_URI</code>, paste your MongoDB Atlas Connection String, and redeploy the project.</p>
+                  </li>
+                  <li>
+                    <strong className="text-slate-800">Whitelist Vercel IP Addresses in MongoDB Atlas:</strong>
+                    <p className="mt-0.5 text-slate-500">Since Vercel uses dynamic serverless IP ranges, you must allow connections from any IP. Go to your <strong className="text-slate-700">MongoDB Atlas Cluster ➜ Network Access</strong>, click <strong className="text-slate-700">Add IP Address</strong>, and choose <strong className="text-slate-800 font-bold bg-amber-50 text-amber-700 px-1 rounded font-mono">Allow Access From Anywhere (0.0.0.0/0)</strong>.</p>
+                  </li>
+                  <li>
+                    <strong className="text-slate-800">Why are edits not saved on Local Fallback in Vercel?</strong>
+                    <p className="mt-0.5 text-slate-500">Vercel uses serverless micro-VMs which have a read-only filesystem. If MongoDB is offline, the server falls back to in-memory storage, which is destroyed as soon as the function scales down (typically after a few seconds of inactivity).</p>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Refresh / Re-test Connection button */}
+              <div className="pt-4 border-t border-slate-100 flex gap-2">
+                <button
+                  type="button"
+                  disabled={checkingDb}
+                  onClick={checkDbConnection}
+                  className="flex-1 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {checkingDb ? "Verifying..." : "🔄 Retry Diagnostic Test"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDbDiagnosticsModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
