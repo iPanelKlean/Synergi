@@ -1,0 +1,140 @@
+{
+  "seats": {
+    "B10": {
+      "status": "available"
+    }
+  },
+  "users": {
+    "super_admin_mis_ipanelklean": {
+      "uid": "super_admin_mis_ipanelklean",
+      "email": "mis@ipanelklean.com",
+      "password": "Ipk@#1234",
+      "displayName": "Super Admin",
+      "role": "admin",
+      "status": "active",
+      "phone": "+91 99999 99999",
+      "createdAt": "2026-07-17T12:13:32.906Z",
+      "allowedModules": [
+        "payments",
+        "access",
+        "users",
+        "analytics",
+        "superadmin"
+      ]
+    },
+    "aXQi6xFIfVbUbM2iOZk3oHJujK42": {
+      "role": "staff",
+      "allowedModules": [
+        "rooms",
+        "seats",
+        "bookings",
+        "payments",
+        "complaints",
+        "agreements",
+        "reviews",
+        "security",
+        "notifications",
+        "access",
+        "users"
+      ]
+    },
+    "9ePUfG1TfOasSpZGmMRnpRC0avL2": {
+      "role": "staff",
+      "allowedModules": [
+        "rooms",
+        "seats",
+        "bookings",
+        "payments",
+        "complaints",
+        "agreements",
+        "reviews",
+        "security",
+        "notifications",
+        "access",
+        "users"
+      ]
+    },
+    "NRV3CrOrGMTI2n2W41D7gZwOLwq1": {
+      "uid": "NRV3CrOrGMTI2n2W41D7gZwOLwq1",
+      "email": "rohit21oc@gmail.com",
+      "displayName": "Rohit Kumar",
+      "role": "customer",
+      "status": "active",
+      "phone": "",
+      "createdAt": "2026-07-17T11:40:05.082Z",
+      "allowedModules": [
+        "rooms",
+        "seats",
+        "payments",
+        "complaints",
+        "agreements",
+        "security"
+      ],
+      "memberId": "SYNERGI-2542",
+      "seatRate": 3500,
+      "billingCycle": "Monthly",
+      "companyName": "TVS",
+      "gstNo": "",
+      "panNo": "",
+      "address": ""
+    },
+    "W0ql3k0Cg0Ym5uKXgbRAWCkCGHx1": {
+      "seatValidity": "2026-08-17"
+    },
+    "test_uid": {
+      "name": "John"
+    }
+  },
+  "bookings": {
+    "gqjj7dzbs1hftonz49kvcv": {
+      "status": "checked_in",
+      "checkOutTime": "3:42:45 PM",
+      "userName": "Test",
+      "userEmail": "Rohit21oc@gmail.com",
+      "userPhone": "7645050131",
+      "companyId": "W0ql3k0Cg0Ym5uKXgbRAWCkCGHx1",
+      "companyName": "Rohit Kumar",
+      "date": "2026-07-16",
+      "otp": "200729",
+      "passId": "SYN-W-ARKNVW",
+      "remarks": "Meeting"
+    }
+  },
+  "notifications": {
+    "notif-cd5mnw3oh": {
+      "userEmail": "rohit21oc@gmail.com",
+      "title": "Workspace Request Updated",
+      "body": "Your workspace request has been updated. Status: CHECKED_IN.",
+      "read": false,
+      "type": "alert",
+      "createdAt": "2026-07-17T10:13:03.961Z"
+    },
+    "6b8lnkx2sh8fnq9bjc6ia9": {
+      "userEmail": "rohit21oc@gmail.com",
+      "title": "Payment Receipt Verified",
+      "body": "Your fee receipt of INR 3700 for July 2026 has been verified! Remarks: None. Your seat validity has been extended until 2026-08-17. Your automated GST Invoice is downloadable.",
+      "read": false,
+      "type": "payment",
+      "createdAt": "2026-07-17T11:52:03.014Z"
+    }
+  },
+  "settings": {},
+  "payments": {
+    "lk0une77crerbbmnkj6red": {
+      "userEmail": "rohit21oc@gmail.com",
+      "month": "July 2026",
+      "amount": 3700,
+      "status": "paid",
+      "bankName": "GPay",
+      "paymentDate": "2026-07-17",
+      "utr": "35165456165",
+      "screenshotUrl": "/uploads/1784289077871_u9qi9w.jpg",
+      "createdAt": "2026-07-17T11:51:24.309Z",
+      "paymentMethod": "UPI",
+      "billingCycle": "Monthly",
+      "billingPeriodFrom": "2026-07-17",
+      "billingPeriodTo": "2026-07-16",
+      "remarks": ""
+    }
+  }
+}

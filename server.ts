@@ -135,10 +135,14 @@ app.use("/api/db", async (req, res, next) => {
   next();
 });
 
-// Create uploads directory if it doesn't exist
+// Create uploads directory if it doesn't exist (wrapped in try-catch for read-only systems)
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn("Could not create uploads directory (might be a read-only environment like Vercel):", err);
 }
 
 // Serve uploaded files statically
@@ -902,6 +906,9 @@ app.post("/api/agreements/upload-file", async (req, res) => {
       return res.status(400).json({ error: "Missing file data" });
     }
 
+    // Ensure database connection is established
+    await connectToMongo().catch(() => {});
+
     // Clean base64 header
     const base64Data = fileBase64.replace(/^data:[^;]+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
@@ -914,7 +921,7 @@ app.post("/api/agreements/upload-file", async (req, res) => {
     // Always write to local storage as fallback/redundancy
     fs.writeFileSync(filePath, buffer);
     let fileUrl = `/uploads/${uniqueFileName}`;
-    let driveLink = `https://drive.google.com/file/d/1Synergi_${Math.random().toString(36).substring(2, 10)}_coworking/view?usp=sharing`;
+    let driveLink = "";
     let isUploadedToDrive = false;
 
     // Check if Google Drive storage is connected
@@ -945,78 +952,96 @@ app.post("/api/agreements/upload-file", async (req, res) => {
       }
     }
 
-    if (driveToken) {
-      try {
-        console.log(`Attempting to upload file "${fileName}" to Google Drive connected to ${connectedEmail}...`);
-        
-        // Prepare multipart/related body
-        const boundary = "synergi_drive_upload_boundary";
-        const delimiter = `\r\n--${boundary}\r\n`;
-        const closeDelim = `\r\n--${boundary}--`;
-        
-        const metadata = {
-          name: fileName,
-          mimeType: fileType || "application/octet-stream"
-        };
-        
-        const multipartBody = Buffer.concat([
-          Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata)),
-          Buffer.from(delimiter + `Content-Type: ${metadata.mimeType}\r\n\r\n`),
-          buffer,
-          Buffer.from(closeDelim)
-        ]);
+    if (!driveToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Google Drive is not connected. Please ask the Administrator to link Google Drive in the Admin Settings panel."
+      });
+    }
 
-        const uploadRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${driveToken}`,
-            "Content-Type": `multipart/related; boundary=${boundary}`,
-            "Content-Length": String(multipartBody.length)
-          },
-          body: multipartBody
+    try {
+      console.log(`Attempting to upload file "${fileName}" to Google Drive connected to ${connectedEmail}...`);
+      
+      // Prepare multipart/related body with direct boundary layout
+      const boundary = "synergi_drive_upload_boundary";
+      const delimiter = `--${boundary}\r\n`;
+      const nextDelimiter = `\r\n--${boundary}\r\n`;
+      const closeDelim = `\r\n--${boundary}--`;
+      
+      const metadata = {
+        name: fileName,
+        mimeType: fileType || "application/octet-stream"
+      };
+      
+      const multipartBody = Buffer.concat([
+        Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata)),
+        Buffer.from(nextDelimiter + `Content-Type: ${metadata.mimeType}\r\n\r\n`),
+        buffer,
+        Buffer.from(closeDelim)
+      ]);
+
+      const uploadRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${driveToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": String(multipartBody.length)
+        },
+        body: multipartBody
+      });
+
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        return res.status(401).json({
+          success: false,
+          error: `Google Drive upload failed (Token may be expired. Please reconnect Google Drive in Admin Settings). Details: ${uploadRes.statusText} (${uploadRes.status}) - ${errText}`
         });
-
-        if (!uploadRes.ok) {
-          const errText = await uploadRes.text();
-          throw new Error(`Google Drive API upload failed: ${uploadRes.statusText} (${uploadRes.status}) - ${errText}`);
-        }
-
-        const uploadData = (await uploadRes.json()) as any;
-        const fileId = uploadData.id;
-
-        if (fileId) {
-          console.log(`File uploaded to Google Drive successfully. File ID: ${fileId}`);
-          
-          // Make file readable by anyone with the link
-          try {
-            const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${driveToken}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                role: "reader",
-                type: "anyone"
-              })
-            });
-            if (!permRes.ok) {
-              console.warn("Failed to set public view permission on Google Drive file:", await permRes.text());
-            } else {
-              console.log("File permissions updated to 'anyone as reader' successfully.");
-            }
-          } catch (permErr) {
-            console.warn("Error setting file permissions on Google Drive:", permErr);
-          }
-
-          driveLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
-          // Map fileUrl to driveLink so that previews and links automatically load from Drive
-          fileUrl = driveLink;
-          isUploadedToDrive = true;
-        }
-      } catch (driveErr: any) {
-        console.error("Failed to upload file to Google Drive (falling back to local):", driveErr);
       }
+
+      const uploadData = (await uploadRes.json()) as any;
+      const fileId = uploadData.id;
+
+      if (fileId) {
+        console.log(`File uploaded to Google Drive successfully. File ID: ${fileId}`);
+        
+        // Make file readable by anyone with the link
+        try {
+          const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${driveToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              role: "reader",
+              type: "anyone"
+            })
+          });
+          if (!permRes.ok) {
+            console.warn("Failed to set public view permission on Google Drive file:", await permRes.text());
+          } else {
+            console.log("File permissions updated to 'anyone as reader' successfully.");
+          }
+        } catch (permErr) {
+          console.warn("Error setting file permissions on Google Drive:", permErr);
+        }
+
+        driveLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+        // Map fileUrl to driveLink so that previews and links automatically load from Drive
+        fileUrl = driveLink;
+        isUploadedToDrive = true;
+      } else {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to get valid File ID from Google Drive API response."
+        });
+      }
+    } catch (driveErr: any) {
+      console.error("Failed to upload file to Google Drive:", driveErr);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to upload file to Google Drive: ${driveErr.message || String(driveErr)}`
+      });
     }
 
     res.json({ success: true, fileUrl, driveLink, fileName: uniqueFileName, isUploadedToDrive });

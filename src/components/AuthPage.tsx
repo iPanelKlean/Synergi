@@ -38,19 +38,37 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [isInIframe, setIsInIframe] = useState(false);
+
+  useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+  }, []);
+
   // Quick offline bypass for admins and developers
-  const handleDemoBypass = (selectedRole: "admin" | "staff" | "customer" | "staff_member") => {
+  const handleDemoBypass = async (selectedRole: "admin" | "staff" | "customer" | "staff_member") => {
+    setError(null);
     setInfo(`Bypassing auth for rapid testing as ${selectedRole}...`);
+    const uid = `demo-bypass-${selectedRole}-${Date.now()}`;
+    const email = selectedRole === "admin" ? "admin@synergicowork.com" : `${selectedRole}@synergicowork.com`;
+    const profile = {
+      uid,
+      email,
+      displayName: selectedRole === "admin" ? "Super Admin (Bypass)" : `${selectedRole.replace('_', ' ')} (Bypass)`,
+      role: selectedRole,
+      status: "active" as const,
+      phone: "+91 99999 88888",
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      // Save profile to database to ensure session is successfully restored on page refresh!
+      await setDoc(doc(db, "users", uid), profile);
+    } catch (err) {
+      console.warn("Failed to persist bypass user profile, falling back to client-only session:", err);
+    }
+
     setTimeout(() => {
-      onSuccess(selectedRole, {
-        uid: `demo-bypass-${selectedRole}-${Date.now()}`,
-        email: selectedRole === "admin" ? "admin@synergicowork.com" : "user@synergicowork.com",
-        displayName: selectedRole === "admin" ? "Super Admin (Bypass)" : "Staff Coordinator (Bypass)",
-        role: selectedRole,
-        status: "active" as const,
-        phone: "+91 99999 88888",
-        createdAt: new Date().toISOString()
-      });
+      onSuccess(selectedRole, profile);
     }, 800);
   };
 
@@ -64,33 +82,9 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
 
     try {
       if (isSignUp) {
-        if (!displayName) {
-          setError("Name is required.");
-          setLoading(false);
-          return;
-        }
-        // Create user
-        const credential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = credential.user;
-        
-        // Update auth profile
-        await updateProfile(user, { displayName });
-
-        // Save custom profile in Firestore
-        const userProfile = {
-          uid: user.uid,
-          email: user.email?.toLowerCase().trim() || "",
-          displayName: displayName,
-          role: role,
-          status: "active" as const,
-          phone: phone,
-          createdAt: new Date().toISOString()
-        };
-
-        await setDoc(doc(db, "users", user.uid), userProfile);
-        setInfo("Account created successfully! Redirecting...");
-        setTimeout(() => onSuccess(role), 1500);
-
+        setError("Public registration is disabled. Only the Administrator can register new user profiles.");
+        setLoading(false);
+        return;
       } else {
         // Sign In
         // 1. Check if there's a custom admin-created credential in Firestore matching email & password
@@ -163,7 +157,7 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
             return;
           }
           // If developer email logs in but isn't admin, auto-promote them!
-          const isDev = user.email?.toLowerCase().trim() === "mis@ipanelklean.com" || user.email?.toLowerCase().trim().endsWith("ipanelklean.com");
+          const isDev = user.email?.toLowerCase().trim() === "mis@ipanelklean.com" || user.email?.toLowerCase().trim().endsWith("ipanelklean.com") || user.email?.toLowerCase().trim().includes("ipanelklean");
           if (isDev && uData.role !== "admin") {
             const updatedProfile = { ...uData, role: "admin" as const };
             await setDoc(doc(db, "users", user.uid), updatedProfile, { merge: true });
@@ -172,19 +166,70 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
             onSuccess(uData.role, uData);
           }
         } else {
-          // If no profile exists, create a default customer profile
-          const isDev = user.email?.toLowerCase().trim() === "mis@ipanelklean.com" || user.email?.toLowerCase().trim().endsWith("ipanelklean.com");
-          const defaultProfile = {
-            uid: user.uid,
-            email: user.email?.toLowerCase().trim() || "",
-            displayName: user.displayName || email.split("@")[0],
-            role: isDev ? ("admin" as const) : ("customer" as const),
-            status: "active" as const,
-            phone: "",
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(doc(db, "users", user.uid), defaultProfile);
-          onSuccess(defaultProfile.role, defaultProfile);
+          // If no profile exists by UID, check if a profile is pre-registered under their email coordinate
+          const userEmail = user.email?.toLowerCase().trim() || "";
+          const isDev = userEmail === "mis@ipanelklean.com" || userEmail.endsWith("ipanelklean.com") || userEmail.includes("ipanelklean");
+          
+          const usersRef = collection(db, "users");
+          const q = query(usersRef, where("email", "==", userEmail));
+          const querySnapshot = await getDocs(q);
+          
+          let preRegisteredDoc: any = null;
+          let preRegisteredId: string = "";
+
+          querySnapshot.forEach((docSnap) => {
+            preRegisteredDoc = docSnap.data();
+            preRegisteredId = docSnap.id;
+          });
+
+          if (preRegisteredDoc) {
+            if (preRegisteredDoc.status !== "active") {
+              setError(`Your account status is currently ${preRegisteredDoc.status || "inactive"}. Please contact the administrator.`);
+              await auth.signOut();
+              setLoading(false);
+              return;
+            }
+
+            // Relink the pre-registered profile to the actual Firebase UID
+            const updatedProfile = {
+              ...preRegisteredDoc,
+              uid: user.uid, // set the authentic auth UID
+              displayName: preRegisteredDoc.displayName || user.displayName || email.split("@")[0],
+              phone: preRegisteredDoc.phone || ""
+            };
+
+            // Save under the new authentic Firebase UID
+            await setDoc(doc(db, "users", user.uid), updatedProfile);
+
+            // Delete the temporary pre-registered custom ID document if they were different
+            if (preRegisteredId !== user.uid) {
+              try {
+                await deleteDoc(doc(db, "users", preRegisteredId));
+              } catch (delErr) {
+                console.warn("Failed to clean up pre-registered temporary ID document:", delErr);
+              }
+            }
+
+            onSuccess(updatedProfile.role, updatedProfile);
+          } else if (isDev) {
+            // Auto-create for sandbox developers to prevent lockout
+            const newProfile = {
+              uid: user.uid,
+              email: userEmail,
+              displayName: user.displayName || email.split("@")[0],
+              role: "admin" as const,
+              status: "active" as const,
+              phone: "",
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(doc(db, "users", user.uid), newProfile);
+            onSuccess("admin", newProfile);
+          } else {
+            // Not pre-registered and not a developer: Block login!
+            setError("Access Denied: Your email address is not registered in the system. Only users pre-registered by the Admin or Super Admin can log in.");
+            await auth.signOut();
+            setLoading(false);
+          }
         }
       }
     } catch (err: any) {
@@ -253,7 +298,7 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
   // Helper to handle successful google authentication (shared by popup and redirect flows)
   const handleSuccessfulAuth = async (user: any) => {
     const userEmail = user.email?.toLowerCase().trim() || "";
-    const isDev = userEmail === "mis@ipanelklean.com" || userEmail.endsWith("ipanelklean.com");
+    const isDev = userEmail === "mis@ipanelklean.com" || userEmail.endsWith("ipanelklean.com") || userEmail.includes("ipanelklean");
 
     // 1. First, check if a profile already exists for this exact Firebase Auth UID
     const snapByUid = await getDoc(doc(db, "users", user.uid));
@@ -358,16 +403,43 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
         err?.message?.includes("closed");
         
       if (isPopupError) {
-        setInfo("Popup was blocked or closed. Switching to secure redirect-based sign-in...");
-        try {
-          await signInWithRedirect(auth, googleProvider);
-        } catch (redirErr: any) {
-          console.error("Google redirect login failed:", redirErr);
-          setError("Google Login failed (popup blocked/closed, and redirect failed to initiate). Please check your browser permissions.");
-          setLoading(false);
-        }
+        setInfo("Popup was blocked or closed. Switch to a new tab for seamless Google login, or use the instructions below.");
+        setErrorDetails({
+          code: "auth/popup-blocked",
+          title: "Google Login Popup Blocked",
+          steps: [
+            "Your browser or the preview window blocked the Google Sign-In popup.",
+            "Running the application inside an iframe limits popups and redirects.",
+            "Click the button below to launch the app in a new browser tab.",
+            "Once loaded in the new tab, Google Sign-In will connect instantly!",
+            "Alternatively, use the quick sandbox bypass options at the bottom of this page."
+          ],
+          actionLabel: "Launch App in New Tab to Sign In ↗",
+          onAction: () => window.open(window.location.href, "_blank")
+        });
+        setLoading(false);
       } else {
-        setError(err.message || "Google Login failed.");
+        const errCode = err?.code || "";
+        const errMsg = err?.message || "";
+        if (errCode === "auth/unauthorized-domain" || errMsg.includes("unauthorized-domain") || errMsg.includes("unauthorized domain")) {
+          setError("Google Login: Unauthorized Domain Error.");
+          setErrorDetails({
+            code: "auth/unauthorized-domain",
+            title: "Vercel Domain Not Authorized in Firebase",
+            steps: [
+              "Your hosted domain (Vercel URL) has not been authorized in your Firebase Project configuration.",
+              "1. Open the Firebase Console (https://console.firebase.google.com).",
+              "2. Select your Firebase project and go to the 'Authentication' section.",
+              "3. Click the 'Settings' tab at the top, then select 'Authorized domains' on the left menu.",
+              "4. Click 'Add domain' and enter your hosted website domain (e.g., your-app-name.vercel.app).",
+              "5. Save the changes and try logging in again!"
+            ],
+            actionLabel: "Go to Firebase Console ↗",
+            onAction: () => window.open("https://console.firebase.google.com", "_blank")
+          });
+        } else {
+          setError(err.message || "Google Login failed.");
+        }
         setLoading(false);
       }
     }
@@ -387,7 +459,27 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
       } catch (err: any) {
         if (active) {
           console.error("Google redirect result error:", err);
-          setError(err.message || "Google Redirect Sign-In failed.");
+          const errCode = err?.code || "";
+          const errMsg = err?.message || "";
+          if (errCode === "auth/unauthorized-domain" || errMsg.includes("unauthorized-domain") || errMsg.includes("unauthorized domain")) {
+            setError("Google Redirect Sign-In: Unauthorized Domain Error.");
+            setErrorDetails({
+              code: "auth/unauthorized-domain",
+              title: "Vercel Domain Not Authorized in Firebase",
+              steps: [
+                "Your hosted domain (Vercel URL) has not been authorized in your Firebase Project configuration.",
+                "1. Open the Firebase Console (https://console.firebase.google.com).",
+                "2. Select your Firebase project and go to the 'Authentication' section.",
+                "3. Click the 'Settings' tab at the top, then select 'Authorized domains' on the left menu.",
+                "4. Click 'Add domain' and enter your hosted website domain (e.g., your-app-name.vercel.app).",
+                "5. Save the changes and try logging in again!"
+              ],
+              actionLabel: "Go to Firebase Console ↗",
+              onAction: () => window.open("https://console.firebase.google.com", "_blank")
+            });
+          } else {
+            setError(err.message || "Google Redirect Sign-In failed.");
+          }
         }
       }
     };
@@ -630,6 +722,25 @@ export default function AuthPage({ onBack, onSuccess }: AuthPageProps) {
                 Sign in with Google
               </button>
             </div>
+
+            {isInIframe && (
+              <div className="mt-4 p-3 bg-blue-50/80 border border-blue-200/60 rounded-2xl text-xs text-slate-600">
+                <p className="font-bold text-blue-800 mb-1 flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-blue-600"></span>
+                  Iframe Sandbox Detected
+                </p>
+                <p className="mb-2.5 leading-relaxed">
+                  Browsers strictly block Google Authentication popups and redirects inside preview iframes. Open the app in a new tab for fully functional Google login, or use the instant sandbox bypass below.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, "_blank")}
+                  className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xxs rounded-xl shadow-md transition-all text-center flex items-center justify-center gap-1.5"
+                >
+                  Launch App in New Tab ↗
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sandbox Admin / Manager Demo Access */}

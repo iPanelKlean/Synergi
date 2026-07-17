@@ -144,8 +144,21 @@ export default function UserDashboard({ user, onLogout, onUpdateProfile }: UserD
   };
 
   // Guard active tab based on allowed modules
+  const isModuleAllowed = (moduleId: string) => {
+    if (!user.allowedModules) return true;
+    const allowed = user.allowedModules;
+    if (moduleId === "overview") return true;
+    if (moduleId === "conference") return allowed.includes("rooms") || allowed.includes("conference");
+    if (moduleId === "seats") return allowed.includes("seats") || allowed.includes("bookings");
+    if (moduleId === "payments") return allowed.includes("payments");
+    if (moduleId === "complaints") return allowed.includes("complaints");
+    if (moduleId === "agreements") return allowed.includes("agreements") || allowed.includes("reviews");
+    if (moduleId === "visitor") return allowed.includes("security") || allowed.includes("notifications") || allowed.includes("visitor");
+    return allowed.includes(moduleId);
+  };
+
   useEffect(() => {
-    if (activeTab !== "overview" && user.allowedModules && !user.allowedModules.includes(activeTab)) {
+    if (activeTab !== "overview" && !isModuleAllowed(activeTab)) {
       setActiveTab("overview");
     }
   }, [activeTab, user.allowedModules]);
@@ -858,7 +871,7 @@ export default function UserDashboard({ user, onLogout, onUpdateProfile }: UserD
         if (result.success) {
           setPaymentScreenshotUrl(result.fileUrl);
         } else {
-          alert("Failed to upload screenshot.");
+          alert("Failed to upload screenshot: " + (result.error || "Unknown error"));
         }
         setUploadingScreenshot(false);
       };
@@ -1016,6 +1029,7 @@ export default function UserDashboard({ user, onLogout, onUpdateProfile }: UserD
           submissionType: "scanned_upload",
           fileName: uploadedFileName,
           fileUrl: uploadedFileUrl,
+          uploadedFileUrl: uploadedFileUrl,
           driveLink: uploadedDriveLink,
           status: "pending_review",
           submittedAt: new Date().toISOString(),
@@ -1221,7 +1235,7 @@ export default function UserDashboard({ user, onLogout, onUpdateProfile }: UserD
             { id: "complaints", label: "Support Tickets", icon: AlertCircle, badge: complaints.filter(c => c.status === "open").length },
             { id: "agreements", label: "Agreements & Forms", icon: FileText, badge: agreements.filter(a => a.status === "pending_signature").length },
             { id: "visitor", label: "Visitor Entry Pass", icon: QrCode, badge: 0 }
-          ].filter(item => item.id === "overview" || !user.allowedModules || user.allowedModules.includes(item.id)).map(item => (
+          ].filter(item => isModuleAllowed(item.id)).map(item => (
             <button
               key={item.id}
               onClick={() => {
@@ -1459,6 +1473,19 @@ export default function UserDashboard({ user, onLogout, onUpdateProfile }: UserD
                 <div className="bg-slate-900/60 backdrop-blur-md px-5 py-4 rounded-2xl border border-slate-800 flex-1 md:flex-initial min-w-[140px]">
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Billing Cycle</p>
                   <p className="text-xl font-extrabold text-indigo-300">{user.billingCycle || "Monthly"}</p>
+                </div>
+                <div className="bg-slate-900/60 backdrop-blur-md px-5 py-4 rounded-2xl border border-slate-800 flex-1 md:flex-initial min-w-[145px]">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Seat Validity</p>
+                  <p className={`text-sm font-extrabold font-mono mt-1 px-2.5 py-0.5 rounded-lg inline-block border ${
+                    user.seatValidity 
+                      ? (new Date(user.seatValidity) < new Date() 
+                        ? 'bg-rose-950/40 text-rose-300 border-rose-900/50' 
+                        : 'bg-emerald-950/40 text-emerald-300 border-emerald-900/50') 
+                      : 'bg-slate-800/40 text-slate-300 border-slate-700/50'
+                  }`}>
+                    {user.seatValidity ? `📅 ${user.seatValidity}` : "No validity set"}
+                    {user.seatValidity && new Date(user.seatValidity) < new Date() && " (Expired)"}
+                  </p>
                 </div>
               </div>
             </div>

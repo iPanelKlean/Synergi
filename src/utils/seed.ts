@@ -1,4 +1,4 @@
-import { Firestore, doc, getDoc, setDoc, writeBatch } from "../firebase";
+import { Firestore, doc, getDoc, setDoc, writeBatch, collection, getDocs } from "../firebase";
 import { Seat } from "../types";
 import { withTimeout } from "../firebase";
 
@@ -56,34 +56,67 @@ export async function ensureSeedData(db: Firestore) {
         2000,
         null
       );
+    }
 
-      // 2. Seed Seats (A1 to A10, B1 to B10)
+    // Ensure we always have exactly 22 seats (16 available, 5 occupied, 1 maintenance)
+    const seatsCol = collection(db, "seats");
+    const seatsSnap = await withTimeout(getDocs(seatsCol), 2500, null);
+    if (!seatsSnap || seatsSnap.size < 22) {
+      console.log("Seeding / repairing seats list to exactly 22 workstations...");
       const seatBatch = writeBatch(db);
+      
       const seatsList: Seat[] = [
-        ...Array.from({ length: 10 }, (_, i) => ({ id: `A${i+1}`, number: `A${i+1}`, occupied: false, status: "available" as const })),
-        ...Array.from({ length: 10 }, (_, i) => ({ id: `B${i+1}`, number: `B${i+1}`, occupied: false, status: "available" as const }))
+        ...Array.from({ length: 11 }, (_, i) => ({ id: `A${i+1}`, number: `A${i+1}`, occupied: false, status: "available" as const })),
+        ...Array.from({ length: 11 }, (_, i) => ({ id: `B${i+1}`, number: `B${i+1}`, occupied: false, status: "available" as const }))
       ];
 
-      // Mark a couple as pre-occupied for visual richness
+      // Mark exactly 5 occupied seats
+      // 1. A3
       seatsList[2].occupied = true;
-      seatsList[2].occupiedByEmail = "user1@example.com";
+      seatsList[2].occupiedByEmail = "rohan.sharma@example.com";
       seatsList[2].assignedToName = "Rohan Sharma";
       seatsList[2].status = "occupied";
 
+      // 2. A8
       seatsList[7].occupied = true;
-      seatsList[7].occupiedByEmail = "user2@example.com";
+      seatsList[7].occupiedByEmail = "priya.patel@example.com";
       seatsList[7].assignedToName = "Priya Patel";
       seatsList[7].status = "occupied";
 
-      seatsList[12].status = "maintenance"; // B3 under maintenance
+      // 3. B2
+      seatsList[12].occupied = true;
+      seatsList[12].occupiedByEmail = "amit.verma@example.com";
+      seatsList[12].assignedToName = "Amit Verma";
+      seatsList[12].status = "occupied";
+
+      // 4. B5
+      seatsList[15].occupied = true;
+      seatsList[15].occupiedByEmail = "sneha.rao@example.com";
+      seatsList[15].assignedToName = "Sneha Rao";
+      seatsList[15].status = "occupied";
+
+      // 5. B8
+      seatsList[18].occupied = true;
+      seatsList[18].occupiedByEmail = "vikram.malhotra@example.com";
+      seatsList[18].assignedToName = "Vikram Malhotra";
+      seatsList[18].status = "occupied";
+
+      // Mark 1 under maintenance: B3
+      seatsList[13].status = "maintenance"; // B3
 
       for (const seat of seatsList) {
         const ref = doc(db, "seats", seat.id);
         seatBatch.set(ref, seat);
       }
       await withTimeout(seatBatch.commit(), 2500, null);
+      console.log("Successfully seeded/repaired 22 seats!");
+    }
 
-      // 3. Seed Conference Rooms
+    // Seed Conference Rooms if none exist
+    const roomCol = collection(db, "conferenceRooms");
+    const roomSnap = await withTimeout(getDocs(roomCol), 2500, null);
+    if (!roomSnap || roomSnap.empty) {
+      console.log("Seeding conference rooms...");
       const roomBatch = writeBatch(db);
       const rooms = [
         { id: "room1", name: "Executive Boardroom", capacity: 12, pricePerHour: 800, status: "available" as const },
@@ -96,9 +129,9 @@ export async function ensureSeedData(db: Firestore) {
         roomBatch.set(ref, r);
       }
       await withTimeout(roomBatch.commit(), 2500, null);
-
-      console.log("Seeding completed successfully!");
     }
+
+    console.log("Database seeding verification complete!");
   } catch (error) {
     console.error("Error during initial data seeding:", error);
   }

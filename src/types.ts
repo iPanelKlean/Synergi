@@ -15,6 +15,7 @@ export interface UserProfile {
   memberId?: string;
   seatRate?: number;
   billingCycle?: string;
+  seatValidity?: string;
 }
 
 export interface Booking {

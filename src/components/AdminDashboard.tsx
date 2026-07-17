@@ -82,7 +82,8 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
-  Printer
+  Printer,
+  Calendar
 } from "lucide-react";
 
 const WhatsAppIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
@@ -228,6 +229,44 @@ const ReviewAdminCard = ({
   );
 };
 
+const getDefaultModulesForUser = (role: string, customAllowed?: string[]): string[] => {
+  if (customAllowed && customAllowed.length > 0) {
+    const migrated = new Set<string>();
+    customAllowed.forEach(m => {
+      if (m === "conference") { migrated.add("rooms"); }
+      else if (m === "seats") { migrated.add("seats"); migrated.add("bookings"); }
+      else if (m === "payments") { migrated.add("payments"); }
+      else if (m === "complaints") { migrated.add("complaints"); }
+      else if (m === "agreements") { migrated.add("agreements"); migrated.add("reviews"); }
+      else if (m === "visitor") { migrated.add("security"); migrated.add("notifications"); }
+      else { migrated.add(m); }
+    });
+    return Array.from(migrated);
+  }
+
+  switch (role) {
+    case "admin":
+      return [
+        "analytics", "users", "access", "bookings", "security", "rooms", 
+        "seats", "payments", "agreements", "complaints", "reviews", "notifications", "superadmin"
+      ];
+    case "staff":
+      return [
+        "analytics", "users", "access", "bookings", "security", "rooms", 
+        "seats", "payments", "agreements", "complaints", "reviews", "notifications"
+      ];
+    case "staff_member":
+      return [
+        "bookings", "security", "rooms", "seats", "complaints"
+      ];
+    case "customer":
+    default:
+      return [
+        "rooms", "seats", "payments", "complaints", "agreements", "security"
+      ];
+  }
+};
+
 interface AdminDashboardProps {
   user: UserProfile;
   onLogout: () => void;
@@ -235,54 +274,29 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ user, onLogout, onUpdateProfile }: AdminDashboardProps) {
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const currentUserProfile = usersList.find(u => u.uid === user.uid) || user;
+
   const [activeTab, setActiveTab] = useState<"analytics" | "users" | "bookings" | "rooms" | "seats" | "payments" | "agreements" | "complaints" | "notifications" | "superadmin" | "reviews" | "access" | "security">(
     "analytics"
   );
+  const [selectedRevenueYear, setSelectedRevenueYear] = useState<number>(2026);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const hasLoadedSettingsRef = React.useRef(false);
 
   // Guard access to tabs based on roles & permissions
   useEffect(() => {
-    // Payment settings is strictly Super Admin only
-    if (activeTab === "superadmin" && user.role !== "admin") {
-      setActiveTab("analytics");
-      return;
+    const activeProfile = usersList.find(u => u.uid === user.uid) || user;
+    const allowed = getDefaultModulesForUser(activeProfile.role, activeProfile.allowedModules);
+    if (!allowed.includes(activeTab)) {
+      const preferredOrder = [
+        "analytics", "users", "access", "bookings", "security", "rooms", 
+        "seats", "payments", "agreements", "complaints", "reviews", "notifications", "superadmin"
+      ];
+      const fallbackTab = preferredOrder.find(tab => allowed.includes(tab)) || "analytics";
+      setActiveTab(fallbackTab as any);
     }
-    
-    // Access & Permissions is Super Admin & Admin (staff) only
-    if (activeTab === "access" && user.role !== "admin" && user.role !== "staff") {
-      setActiveTab("analytics");
-      return;
-    }
-
-    // User Directory is Super Admin & Admin (staff) only
-    if (activeTab === "users" && user.role !== "admin" && user.role !== "staff") {
-      setActiveTab("analytics");
-      return;
-    }
-
-    // Module-based guards for staff / staff_member roles
-    if (user.role !== "admin") {
-      const moduleMapping: Record<string, string> = {
-        bookings: "seats",
-        seats: "seats",
-        rooms: "conference",
-        payments: "payments",
-        agreements: "agreements",
-        complaints: "complaints",
-        reviews: "agreements",
-        notifications: "visitor"
-      };
-
-      const requiredModule = moduleMapping[activeTab];
-      if (requiredModule) {
-        const allowed = user.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"];
-        if (!allowed.includes(requiredModule)) {
-          setActiveTab("analytics");
-        }
-      }
-    }
-  }, [activeTab, user.role, user.allowedModules]);
+  }, [activeTab, usersList, user]);
 
   // Custom Alert / Toast & Confirm State
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -442,7 +456,6 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   }, []);
 
   // Real-time lists
-  const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [bookingsList, setBookingsList] = useState<Booking[]>([]);
   const [seatsList, setSeatsList] = useState<Seat[]>([]);
   const [roomsList, setRoomsList] = useState<ConferenceRoom[]>([]);
@@ -479,18 +492,20 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   const [accessPage, setAccessPage] = useState(1);
 
   const handleRoleChange = (uid: string, newRole: UserProfile["role"]) => {
+    const currentUser = usersList.find(u => u.uid === uid);
+    const currentAllowed = localPerms[uid]?.allowedModules || getDefaultModulesForUser(currentUser?.role || "customer", currentUser?.allowedModules);
     setLocalPerms(prev => ({
       ...prev,
       [uid]: {
         role: newRole,
-        allowedModules: prev[uid]?.allowedModules || usersList.find(u => u.uid === uid)?.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"]
+        allowedModules: currentAllowed
       }
     }));
   };
 
   const handleModuleToggle = (uid: string, moduleId: string) => {
     const currentUser = usersList.find(u => u.uid === uid);
-    const currentAllowed = localPerms[uid]?.allowedModules || currentUser?.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"];
+    const currentAllowed = localPerms[uid]?.allowedModules || getDefaultModulesForUser(currentUser?.role || "customer", currentUser?.allowedModules);
     const isAllowed = currentAllowed.includes(moduleId);
     const updatedAllowed = isAllowed ? currentAllowed.filter(m => m !== moduleId) : [...currentAllowed, moduleId];
     
@@ -506,14 +521,14 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   const handleSavePermissions = async (u: UserProfile) => {
     const perm = localPerms[u.uid];
     const updatedRole = perm?.role || u.role;
-    const updatedModules = perm?.allowedModules || u.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"];
+    const updatedModules = perm?.allowedModules || getDefaultModulesForUser(u.role, u.allowedModules);
     
     try {
       await updateDoc(doc(db, "users", u.uid), {
         role: updatedRole,
         allowedModules: updatedModules
       });
-      triggerToast(`Permissions for ${u.displayName} updated successfully in MongoDB Atlas!`, "success");
+      triggerToast(`Permissions for ${u.displayName} updated successfully!`, "success");
       setLocalPerms(prev => {
         const next = { ...prev };
         delete next[u.uid];
@@ -528,6 +543,19 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   // Administrative Forms / Modals
   const [showUserModal, setShowUserModal] = useState(false);
   const [editUser, setEditUser] = useState<UserProfile | null>(null);
+
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [editPayment, setEditPayment] = useState<Payment | null>(null);
+  const [paymentFormUserEmail, setPaymentFormUserEmail] = useState("");
+  const [paymentFormMethod, setPaymentFormMethod] = useState<"UPI" | "Bank Transfer">("Bank Transfer");
+  const [paymentFormCycle, setPaymentFormCycle] = useState<"Monthly" | "Quarterly" | "Half-Yearly" | "Yearly">("Monthly");
+  const [paymentFormPeriodFrom, setPaymentFormPeriodFrom] = useState("");
+  const [paymentFormPeriodTo, setPaymentFormPeriodTo] = useState("");
+  const [paymentFormAmount, setPaymentFormAmount] = useState<number | "">("");
+  const [paymentFormUtr, setPaymentFormUtr] = useState("");
+  const [paymentFormRemarks, setPaymentFormRemarks] = useState("");
+  const [paymentFormStatus, setPaymentFormStatus] = useState<"paid" | "pending" | "overdue" | "verified" | "rejected">("pending");
+  const [paymentFormScreenshotUrl, setPaymentFormScreenshotUrl] = useState("");
   const [userFormEmail, setUserFormEmail] = useState("");
   const [userFormName, setUserFormName] = useState("");
   const [userFormRole, setUserFormRole] = useState<UserProfile["role"]>("customer");
@@ -542,6 +570,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   const [userFormGstNo, setUserFormGstNo] = useState("");
   const [userFormPanNo, setUserFormPanNo] = useState("");
   const [userFormAddress, setUserFormAddress] = useState("");
+  const [userFormSeatValidity, setUserFormSeatValidity] = useState("");
 
   const [usersRowsPerPage, setUsersRowsPerPage] = useState<number>(10);
   const [confBookingsRowsPerPage, setConfBookingsRowsPerPage] = useState<number>(10);
@@ -852,11 +881,69 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
     { name: "Under Maintenance", value: maintenanceCount, color: "#f59e0b" }
   ];
 
-  const monthlyRevenueData = [
-    { month: "May 2026", revenue: 42000, bookings: 6 },
-    { month: "June 2026", revenue: 56000, bookings: 9 },
-    { month: "July 2026", revenue: paymentsList.filter(p => p.status === "paid").reduce((sum, p) => sum + p.amount, 0) || 48993, bookings: paymentsList.filter(p => p.status === "paid").length || 7 }
-  ];
+  // Helper to parse payment period to get year and monthIndex (0-11)
+  const parsePaymentPeriod = (p: any): { year: number; monthIndex: number } | null => {
+    if (p.month) {
+      const parts = p.month.split(" ");
+      if (parts.length === 2) {
+        const monthName = parts[0];
+        const yearNum = parseInt(parts[1], 10);
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const index = months.findIndex(m => m.toLowerCase().startsWith(monthName.toLowerCase().substring(0, 3)));
+        if (index !== -1 && !isNaN(yearNum)) {
+          return { year: yearNum, monthIndex: index };
+        }
+      }
+    }
+    if (p.paymentDate) {
+      const d = new Date(p.paymentDate);
+      if (!isNaN(d.getTime())) {
+        return { year: d.getFullYear(), monthIndex: d.getMonth() };
+      }
+    }
+    if (p.createdAt) {
+      const d = new Date(p.createdAt);
+      if (!isNaN(d.getTime())) {
+        return { year: d.getFullYear(), monthIndex: d.getMonth() };
+      }
+    }
+    return null;
+  };
+
+  // Generate a list of available years from database
+  const availableYears: number[] = Array.from(new Set(
+    paymentsList.map(p => {
+      const parsed = parsePaymentPeriod(p);
+      return parsed ? parsed.year : null;
+    }).filter((y): y is number => y !== null)
+  ));
+
+  // Add default years if sparse
+  [2024, 2025, 2026, 2027].forEach(y => {
+    if (!availableYears.includes(y)) {
+      availableYears.push(y);
+    }
+  });
+  availableYears.sort((a, b) => b - a);
+
+  // Exactly 12 months for the selected year
+  const monthsListShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthlyRevenueData = monthsListShort.map((shortName, idx) => ({
+    month: `${shortName} ${selectedRevenueYear}`,
+    revenue: 0,
+    bookings: 0
+  }));
+
+  // Populate payments
+  paymentsList.forEach(p => {
+    if (p.status === "paid") {
+      const parsed = parsePaymentPeriod(p);
+      if (parsed && parsed.year === selectedRevenueYear) {
+        monthlyRevenueData[parsed.monthIndex].revenue += (Number(p.amount) || 0);
+        monthlyRevenueData[parsed.monthIndex].bookings += 1;
+      }
+    }
+  });
 
   // Reviews Administration Operations
   const handleApproveReview = async (id: string) => {
@@ -984,6 +1071,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
         gstNo: userFormRole === "customer" ? userFormGstNo : "",
         panNo: userFormRole === "customer" ? userFormPanNo : "",
         address: userFormRole === "customer" ? userFormAddress : "",
+        seatValidity: userFormRole === "customer" ? userFormSeatValidity : "",
         createdAt: editUser ? editUser.createdAt : new Date().toISOString()
       };
       if (userFormPassword) {
@@ -1012,6 +1100,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
       setUserFormGstNo("");
       setUserFormPanNo("");
       setUserFormAddress("");
+      setUserFormSeatValidity("");
     } catch (err: any) {
       console.error(err);
       alert(`Error saving user record: ${err?.message || String(err)}`);
@@ -1743,22 +1832,80 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
         status,
         remarks: remarks || ""
       });
+
+      let extendedValidityStr = "";
+      if (status === "paid") {
+        const usersRef = collection(db, "users");
+        const uq = query(usersRef, where("email", "==", p.userEmail.toLowerCase().trim()));
+        const uSnap = await getDocs(uq);
+        if (!uSnap.empty) {
+          const userDoc = uSnap.docs[0];
+          const userData = userDoc.data() as UserProfile;
+          
+          let currentValidity = userData.seatValidity ? new Date(userData.seatValidity) : new Date();
+          // If validity is invalid or in the past, extend starting from today
+          if (isNaN(currentValidity.getTime()) || currentValidity < new Date()) {
+            currentValidity = new Date();
+          }
+          
+          const cycle = p.billingCycle || userData.billingCycle || "Monthly";
+          let monthsToAdd = 1;
+          if (cycle === "Quarterly") monthsToAdd = 3;
+          else if (cycle === "Half-Yearly") monthsToAdd = 6;
+          else if (cycle === "Yearly" || cycle === "Annually") monthsToAdd = 12;
+          
+          currentValidity.setMonth(currentValidity.getMonth() + monthsToAdd);
+          extendedValidityStr = currentValidity.toISOString().split('T')[0];
+          
+          await updateDoc(doc(db, "users", userDoc.id), {
+            seatValidity: extendedValidityStr
+          });
+        }
+      }
       
       // Send alert
       await addDoc(collection(db, "notifications"), {
         userEmail: p.userEmail,
         title: status === "paid" ? "Payment Receipt Verified" : "Payment Declined / Pending",
         body: status === "paid" 
-          ? `Your fee receipt of INR ${p.amount} for ${p.month} has been verified! Remarks: ${remarks || "None"}. Your automated GST Invoice is downloadable.`
+          ? `Your fee receipt of INR ${p.amount} for ${p.month} has been verified! Remarks: ${remarks || "None"}.${extendedValidityStr ? ` Your seat validity has been extended until ${extendedValidityStr}.` : ""} Your automated GST Invoice is downloadable.`
           : `Your fee receipt for ${p.month} was flagged. Remarks: ${remarks || "None"}. Support will reach out.`,
         read: false,
         type: "payment",
         createdAt: new Date().toISOString()
       });
 
-      alert(`Payment marked as ${status.toUpperCase()}! Remarks saved.`);
+      alert(`Payment marked as ${status.toUpperCase()}!${extendedValidityStr ? ` Member's seat validity has been extended to ${extendedValidityStr}.` : ""} Remarks saved.`);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleSavePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPayment) return;
+    try {
+      const updatedData: Partial<Payment> = {
+        userEmail: paymentFormUserEmail,
+        paymentMethod: paymentFormMethod,
+        billingCycle: paymentFormCycle,
+        billingPeriodFrom: paymentFormPeriodFrom,
+        billingPeriodTo: paymentFormPeriodTo,
+        amount: Number(paymentFormAmount) || 0,
+        utr: paymentFormUtr,
+        remarks: paymentFormRemarks,
+        status: paymentFormStatus,
+        screenshotUrl: paymentFormScreenshotUrl
+      };
+
+      await updateDoc(doc(db, "payments", editPayment.id), updatedData);
+      
+      triggerToast("Payment record updated successfully!", "success");
+      setShowPaymentModal(false);
+      setEditPayment(null);
+    } catch (err: any) {
+      console.error(err);
+      triggerToast(`Failed to update payment record: ${err?.message || String(err)}`, "error");
     }
   };
 
@@ -1922,7 +2069,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
           setSuperCompanyLogo(result.fileUrl);
           triggerToast("Company logo uploaded successfully!", "success");
         } else {
-          triggerToast("Failed to upload company logo.", "error");
+          triggerToast("Failed to upload company logo: " + (result.error || ""), "error");
         }
         setLogoUploading(false);
       };
@@ -1957,7 +2104,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
           setSuperQrCodeUrl(result.fileUrl);
           triggerToast("UPI QR code uploaded successfully!", "success");
         } else {
-          triggerToast("Failed to upload QR code.", "error");
+          triggerToast("Failed to upload QR code: " + (result.error || ""), "error");
         }
         setQrUploading(false);
       };
@@ -1972,7 +2119,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
   // Super Admin Overrides Save (Locked only to role === admin)
   const handleSaveSuperAdminSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (user.role !== "admin") {
+    if (currentUserProfile.role !== "admin") {
       triggerToast("Only the super administrator can override billing configurations.", "error");
       return;
     }
@@ -2104,7 +2251,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             <div>
               <h2 className="text-sm font-black text-white leading-tight">Synergi</h2>
               <p className="text-[9px] text-blue-400 font-mono tracking-wider uppercase">
-                {user.role === "admin" ? "SUPER ADMIN" : user.role === "staff" ? "ADMIN" : user.role === "staff_member" ? "STAFF" : "MEMBER"}
+                {currentUserProfile.role === "admin" ? "SUPER ADMIN" : currentUserProfile.role === "staff" ? "ADMIN" : currentUserProfile.role === "staff_member" ? "STAFF" : "MEMBER"}
               </p>
             </div>
           </div>
@@ -2124,7 +2271,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             { id: "users", label: "Member Directory", icon: UsersIcon, badge: 0 },
             { id: "access", label: "Access & Permissions", icon: FolderLock, badge: 0 },
             { id: "bookings", label: "Seat & Visit Orders", icon: Briefcase, badge: bookingsList.filter(b => b.status === "pending").length },
-            { id: "security", label: "🔒 Reception / Security", icon: ShieldCheck, badge: bookingsList.filter(b => b.type === "visit" && b.status === "approved").length },
+            { id: "security", label: "🔒 Visitors", icon: ShieldCheck, badge: bookingsList.filter(b => b.type === "visit" && b.status === "approved").length },
             { id: "rooms", label: "Conference Rooms", icon: LayoutDashboard, badge: confBookingsList.filter(cb => cb.status === "pending").length },
             { id: "seats", label: "Seats Setup", icon: Layers, badge: 0 },
             { id: "payments", label: "Billing Receipts", icon: CreditCard, badge: paymentsList.filter(p => p.status === "pending" || p.status === "overdue").length },
@@ -2134,51 +2281,8 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             { id: "notifications", label: "Broadcast Dispatcher", icon: MessageSquareCode, badge: 0 },
             { id: "superadmin", label: "Payment Settings", icon: FolderLock, badge: 0 }
           ].filter(item => {
-            // Super Admin has access to all modules and settings
-            if (user.role === "admin") {
-              return true;
-            }
-
-            // Payment settings is strictly Super Admin only
-            if (item.id === "superadmin") {
-              return false;
-            }
-
-            // Access Control & Permissions tab is restricted to Super Admin & Admin only
-            if (item.id === "access") {
-              return user.role === "staff";
-            }
-
-            // User Directory is for Super Admin & Admin only
-            if (item.id === "users") {
-              return user.role === "staff";
-            }
-
-            // Analytics is accessible by all staff
-            if (item.id === "analytics") {
-              return true;
-            }
-
-            // Other module-specific tabs
-            const moduleMapping: Record<string, string> = {
-              bookings: "seats",
-              security: "visitor",
-              seats: "seats",
-              rooms: "conference",
-              payments: "payments",
-              agreements: "agreements",
-              complaints: "complaints",
-              reviews: "agreements",
-              notifications: "visitor"
-            };
-
-            const requiredModule = moduleMapping[item.id];
-            if (requiredModule) {
-              const allowed = user.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"];
-              return allowed.includes(requiredModule);
-            }
-
-            return true;
+            const allowed = getDefaultModulesForUser(currentUserProfile.role, currentUserProfile.allowedModules);
+            return allowed.includes(item.id);
           }).map(item => (
             <button
               key={item.id}
@@ -2288,12 +2392,12 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             <div className="flex items-center justify-between gap-3 mb-3 bg-blue-900/20 p-2.5 rounded-xl border border-blue-900/40">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-white text-blue-900 flex items-center justify-center font-bold text-xs shrink-0">
-                  {user.displayName.charAt(0).toUpperCase()}
+                  {currentUserProfile.displayName.charAt(0).toUpperCase()}
                 </div>
                 <div className="truncate text-left">
-                  <p className="text-xs font-black text-white truncate">{user.displayName}</p>
+                  <p className="text-xs font-black text-white truncate">{currentUserProfile.displayName}</p>
                   <span className="text-[9px] bg-blue-800 text-blue-100 font-bold uppercase tracking-wider px-2 py-0.2 rounded-full inline-block">
-                    {user.role === "admin" ? "Super Admin" : user.role === "staff" ? "Admin" : user.role === "staff_member" ? "Staff" : "Member"}
+                    {currentUserProfile.role === "admin" ? "Super Admin" : currentUserProfile.role === "staff" ? "Admin" : currentUserProfile.role === "staff_member" ? "Staff" : "Member"}
                   </span>
                 </div>
               </div>
@@ -2331,7 +2435,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             </button>
             <div>
               <span className="text-xxs font-bold text-blue-600 uppercase tracking-widest block font-mono">
-                {user.role === "admin" ? "Synergi Coworking Super Admin Access" : user.role === "staff" ? "Synergi Coworking Admin Access" : user.role === "staff_member" ? "Synergi Coworking Staff Access" : "Synergi Coworking Member Access"}
+                {currentUserProfile.role === "admin" ? "Synergi Coworking Super Admin Access" : currentUserProfile.role === "staff" ? "Synergi Coworking Admin Access" : currentUserProfile.role === "staff_member" ? "Synergi Coworking Staff Access" : "Synergi Coworking Member Access"}
               </span>
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 capitalize">{activeTab}</h1>
             </div>
@@ -2376,7 +2480,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
               <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm">
                 <p className="text-xxs font-bold text-slate-400 uppercase tracking-wider">Monthly Revenue</p>
                 <p className="text-2xl font-black text-blue-600 mt-1">
-                  INR {paymentsList.filter(p => p.status === "paid").reduce((sum, p) => sum + p.amount, 0) || 48993}
+                  INR {paymentsList.filter(p => p.status === "paid").reduce((sum, p) => sum + (Number(p.amount) || 0), 0)}
                 </p>
                 <div className="mt-2 text-[10px] text-slate-500 font-mono">
                   Verified payments cleared.
@@ -2385,7 +2489,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
               <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm">
                 <p className="text-xxs font-bold text-slate-400 uppercase tracking-wider">Pending Dues</p>
                 <p className="text-2xl font-black text-rose-600 mt-1">
-                  INR {paymentsList.filter(p => p.status === "pending" || p.status === "overdue").length * 6999}
+                  INR {paymentsList.filter(p => p.status === "pending" || p.status === "overdue").reduce((sum, p) => sum + (Number(p.amount) || 0), 0)}
                 </p>
                 <div className="mt-2 text-[10px] text-rose-500 font-semibold">
                   {paymentsList.filter(p => p.status === "pending" || p.status === "overdue").length} Pending receipts.
@@ -2397,7 +2501,24 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             <div className="grid lg:grid-cols-2 gap-8">
               {/* REVENUE BAR CHART */}
               <div className="bg-white p-6 rounded-3xl border border-slate-150 shadow-sm space-y-4">
-                <h4 className="font-bold text-sm text-slate-900">Platform Clearance Revenue (INR)</h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-slate-500" />
+                    <h4 className="font-bold text-sm text-slate-900">Platform Clearance Revenue (INR)</h4>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Year:</span>
+                    <select
+                      value={selectedRevenueYear}
+                      onChange={(e) => setSelectedRevenueYear(Number(e.target.value))}
+                      className="text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-lg px-2.5 py-1 text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer"
+                    >
+                      {availableYears.map(yr => (
+                        <option key={yr} value={yr}>{yr}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={monthlyRevenueData}>
@@ -2505,7 +2626,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                   setUserFormPhone("");
                   setUserFormRole("customer");
                   setUserFormStatus("active");
-                  setUserFormAllowedModules(["conference", "seats", "payments", "complaints", "agreements", "visitor"]);
+                  setUserFormAllowedModules(getDefaultModulesForUser("customer"));
                   setUserFormMemberId(`SYNERGI-${Math.floor(1000 + Math.random() * 9000)}`);
                   setUserFormSeatRate("");
                   setUserFormBillingCycle("Monthly");
@@ -2513,6 +2634,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                   setUserFormGstNo("");
                   setUserFormPanNo("");
                   setUserFormAddress("");
+                  setUserFormSeatValidity("");
                   setShowUserModal(true);
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-md shadow-blue-100"
@@ -2633,6 +2755,15 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                         </select>
                       </div>
                       <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Seat Validity Expiry Date</label>
+                        <input 
+                          type="date"
+                          value={userFormSeatValidity}
+                          onChange={e => setUserFormSeatValidity(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 font-mono" 
+                        />
+                      </div>
+                      <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1">Company Name</label>
                         <input 
                           type="text" 
@@ -2675,18 +2806,25 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                   )}
                   <div className="col-span-full bg-slate-50 p-4 rounded-2xl border border-slate-200/60 mt-1">
                     <p className="text-xs font-bold text-slate-800 mb-2">Module Access Control</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       {[
-                        { id: "conference", label: "Conference Rooms" },
-                        { id: "seats", label: "Seat Booking" },
-                        { id: "payments", label: "Payment Receipt" },
-                        { id: "complaints", label: "Support Tickets" },
-                        { id: "agreements", label: "Agreements & Forms" },
-                        { id: "visitor", label: "Visitor Entry Pass" }
+                        { id: "analytics", label: "Dashboard Analytics" },
+                        { id: "users", label: "Member Directory" },
+                        { id: "access", label: "Access & Permissions" },
+                        { id: "bookings", label: "Seat & Visit Orders" },
+                        { id: "security", label: "🔒 Visitors" },
+                        { id: "rooms", label: "Conference Rooms" },
+                        { id: "seats", label: "Seats Setup" },
+                        { id: "payments", label: "Billing Receipts" },
+                        { id: "agreements", label: "Agreements & Licenses" },
+                        { id: "complaints", label: "Support complaints" },
+                        { id: "reviews", label: "Reviews Approval" },
+                        { id: "notifications", label: "Broadcast Dispatcher" },
+                        { id: "superadmin", label: "Payment Settings" }
                       ].map(mod => {
                         const isChecked = userFormAllowedModules.includes(mod.id);
                         return (
-                          <label key={mod.id} className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-[11px] font-medium text-slate-700 transition-colors">
+                          <label key={mod.id} className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-[10px] font-medium text-slate-700 transition-colors">
                             <input 
                               type="checkbox"
                               checked={isChecked}
@@ -2728,6 +2866,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                     <th className="p-4">Role</th>
                     <th className="p-4">Access Modules</th>
                     <th className="p-4">Seat Rate</th>
+                    <th className="p-4">Seat Validity</th>
                     <th className="p-4">Status</th>
                     <th className="p-4 text-center">Actions</th>
                   </tr>
@@ -2745,20 +2884,45 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                       </td>
                       <td className="p-4">
                         <div className="flex flex-wrap gap-1 max-w-[240px]">
-                          {(u.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"]).map(m => (
+                          {getDefaultModulesForUser(u.role, u.allowedModules).map(m => (
                             <span key={m} className="bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                              {m === "conference" ? "Rooms" :
+                              {m === "analytics" ? "Analytics" :
+                               m === "users" ? "Directory" :
+                               m === "access" ? "Access" :
+                               m === "bookings" ? "Orders" :
+                               m === "security" ? "🔒 Visitors" :
+                               m === "rooms" ? "Rooms" :
                                m === "seats" ? "Seats" :
-                               m === "payments" ? "Payments" :
-                               m === "complaints" ? "Support" :
+                               m === "payments" ? "Billing" :
                                m === "agreements" ? "Contracts" :
-                               m === "visitor" ? "Visitors" : m}
+                               m === "complaints" ? "Support" :
+                               m === "reviews" ? "Reviews" :
+                               m === "notifications" ? "Broadcast" :
+                               m === "superadmin" ? "Settings" : m}
                             </span>
                           ))}
                         </div>
                       </td>
                       <td className="p-4 font-mono font-medium text-slate-700">
                         {u.seatRate !== undefined ? `₹${u.seatRate}` : "₹6999"} <span className="text-[10px] text-slate-400 font-sans">/ {u.billingCycle || "Monthly"}</span>
+                      </td>
+                      <td className="p-4">
+                        {u.role === "customer" ? (
+                          u.seatValidity ? (
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold font-mono inline-block ${
+                              new Date(u.seatValidity) < new Date() 
+                                ? "bg-rose-50 text-rose-700 border border-rose-100" 
+                                : "bg-blue-50 text-blue-700 border border-blue-100"
+                            }`}>
+                              📅 {u.seatValidity}
+                              {new Date(u.seatValidity) < new Date() && " (Expired)"}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">No validity set</span>
+                          )
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
                       </td>
                       <td className="p-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -2779,7 +2943,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                             setUserFormRole(u.role);
                             setUserFormStatus(u.status);
                             setUserFormPassword(u.password || "");
-                            setUserFormAllowedModules(u.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"]);
+                            setUserFormAllowedModules(getDefaultModulesForUser(u.role, u.allowedModules));
                             setUserFormMemberId(u.memberId || "");
                             setUserFormSeatRate(u.seatRate !== undefined ? u.seatRate : "");
                             setUserFormBillingCycle(u.billingCycle || "Monthly");
@@ -2787,6 +2951,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                             setUserFormGstNo(u.gstNo || "");
                             setUserFormPanNo(u.panNo || "");
                             setUserFormAddress(u.address || "");
+                            setUserFormSeatValidity(u.seatValidity || "");
                             setShowUserModal(true);
                           }}
                           className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
@@ -2908,15 +3073,22 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                     return paginated.map(u => {
                       const isDirty = !!localPerms[u.uid];
                       const currentRole = localPerms[u.uid]?.role || u.role;
-                      const allowed = localPerms[u.uid]?.allowedModules || u.allowedModules || ["conference", "seats", "payments", "complaints", "agreements", "visitor"];
+                      const allowed = localPerms[u.uid]?.allowedModules || getDefaultModulesForUser(currentRole, u.allowedModules);
 
                       const modules = [
-                        { id: "conference", label: "Conference Rooms", color: "bg-indigo-50 border-indigo-100 text-indigo-700" },
-                        { id: "seats", label: "Seat Bookings", color: "bg-sky-50 border-sky-100 text-sky-700" },
-                        { id: "payments", label: "Payments Receipt", color: "bg-emerald-50 border-emerald-100 text-emerald-700" },
-                        { id: "complaints", label: "Support Tickets", color: "bg-amber-50 border-amber-100 text-amber-700" },
-                        { id: "agreements", label: "Agreements & Forms", color: "bg-blue-50 border-blue-100 text-blue-700" },
-                        { id: "visitor", label: "Visitor Entry Pass", color: "bg-purple-50 border-purple-100 text-purple-700" },
+                        { id: "analytics", label: "Dashboard Analytics", color: "bg-blue-50 border-blue-100 text-blue-700" },
+                        { id: "users", label: "Member Directory", color: "bg-indigo-50 border-indigo-100 text-indigo-700" },
+                        { id: "access", label: "Access & Permissions", color: "bg-violet-50 border-violet-100 text-violet-700" },
+                        { id: "bookings", label: "Seat & Visit Orders", color: "bg-sky-50 border-sky-100 text-sky-700" },
+                        { id: "security", label: "🔒 Visitors", color: "bg-emerald-50 border-emerald-100 text-emerald-700" },
+                        { id: "rooms", label: "Conference Rooms", color: "bg-pink-50 border-pink-100 text-pink-700" },
+                        { id: "seats", label: "Seats Setup", color: "bg-rose-50 border-rose-100 text-rose-700" },
+                        { id: "payments", label: "Billing Receipts", color: "bg-emerald-50 border-emerald-100 text-emerald-700" },
+                        { id: "agreements", label: "Agreements & Licenses", color: "bg-teal-50 border-teal-100 text-teal-700" },
+                        { id: "complaints", label: "Support complaints", color: "bg-amber-50 border-amber-100 text-amber-700" },
+                        { id: "reviews", label: "Reviews Approval", color: "bg-fuchsia-50 border-fuchsia-100 text-fuchsia-700" },
+                        { id: "notifications", label: "Broadcast Dispatcher", color: "bg-cyan-50 border-cyan-100 text-cyan-700" },
+                        { id: "superadmin", label: "Payment Settings", color: "bg-purple-50 border-purple-100 text-purple-700" },
                       ];
 
                       return (
@@ -4167,7 +4339,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-150 shadow-sm space-y-6 animate-fade-in">
             <div>
               <h4 className="font-bold text-slate-900 text-sm">Clearance Verification Ledger</h4>
-              <p className="text-xs text-slate-500">Audit manual bank transfer coordinates, transaction UTRs, and payment receipts to issue official GST invoices.</p>
+              <p className="text-xs text-slate-500">Audit manual bank transfer coordinates, transaction UTRs, and payment receipts.</p>
             </div>
 
             <div className="overflow-x-auto border border-slate-200 rounded-2xl">
@@ -4228,7 +4400,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                           </span>
                         </td>
                         <td className="p-4">
-                          <div className="flex items-center gap-3 justify-center">
+                          <div className="flex items-center gap-2 justify-center">
                             {p.screenshotUrl && (
                               <a 
                                 href={p.screenshotUrl} 
@@ -4241,6 +4413,26 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                               </a>
                             )}
                             
+                            <button
+                              onClick={() => {
+                                setEditPayment(p);
+                                setPaymentFormUserEmail(p.userEmail);
+                                setPaymentFormMethod(p.paymentMethod || "Bank Transfer");
+                                setPaymentFormCycle(p.billingCycle || "Monthly");
+                                setPaymentFormPeriodFrom(p.billingPeriodFrom || "");
+                                setPaymentFormPeriodTo(p.billingPeriodTo || "");
+                                setPaymentFormAmount(p.amount);
+                                setPaymentFormUtr(p.utr || "");
+                                setPaymentFormRemarks(p.remarks || "");
+                                setPaymentFormStatus(p.status);
+                                setPaymentFormScreenshotUrl(p.screenshotUrl || "");
+                                setShowPaymentModal(true);
+                              }}
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-blue-150 shrink-0"
+                            >
+                              Edit
+                            </button>
+
                             {p.status === "pending" && (
                               <div className="flex gap-1">
                                 <button
@@ -5112,7 +5304,7 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-slate-900 to-indigo-950 p-6 rounded-3xl text-white shadow-xl">
               <div>
                 <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
-                  <span>🔒 Reception & Security Gate Management</span>
+                  <span>🔒 Visitors & Gate Management</span>
                 </h2>
                 <p className="text-xs text-indigo-200 mt-1">Verify visitor QR passes, digital OTP access codes, and register on-the-spot guest entries.</p>
               </div>
@@ -5755,6 +5947,171 @@ export default function AdminDashboard({ user, onLogout, onUpdateProfile }: Admi
                   className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
                 >
                   Register & Check-In
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Payment Modal */}
+      {showPaymentModal && editPayment && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 sm:p-8 animate-in zoom-in-95 duration-200 my-auto max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={() => {
+                setShowPaymentModal(false);
+                setEditPayment(null);
+              }}
+              className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="mb-6">
+              <h3 className="text-lg font-bold text-slate-900">Edit Payment Record</h3>
+              <p className="text-xs text-slate-500">Modify member's payment coordinates, period dues, references and approval status.</p>
+            </div>
+
+            <form onSubmit={handleSavePayment} className="space-y-4">
+              <div>
+                <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Customer Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={paymentFormUserEmail}
+                  onChange={e => setPaymentFormUserEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  placeholder="customer@example.com"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Payment Method</label>
+                  <select
+                    value={paymentFormMethod}
+                    onChange={e => setPaymentFormMethod(e.target.value as "UPI" | "Bank Transfer")}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  >
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="UPI">UPI</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Billing Cycle</label>
+                  <select
+                    value={paymentFormCycle}
+                    onChange={e => setPaymentFormCycle(e.target.value as "Monthly" | "Quarterly" | "Half-Yearly" | "Yearly")}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  >
+                    <option value="Monthly">Monthly</option>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="Half-Yearly">Half-Yearly</option>
+                    <option value="Yearly">Yearly</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Billing Period From</label>
+                  <input
+                    type="date"
+                    value={paymentFormPeriodFrom}
+                    onChange={e => setPaymentFormPeriodFrom(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Billing Period To</label>
+                  <input
+                    type="date"
+                    value={paymentFormPeriodTo}
+                    onChange={e => setPaymentFormPeriodTo(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Dues Amount (INR)</label>
+                  <input
+                    type="number"
+                    required
+                    value={paymentFormAmount}
+                    onChange={e => setPaymentFormAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 font-mono"
+                    placeholder="e.g. 5000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Status</label>
+                  <select
+                    value={paymentFormStatus}
+                    onChange={e => setPaymentFormStatus(e.target.value as "paid" | "pending" | "overdue" | "verified" | "rejected")}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="verified">Verified</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">UTR / Ref Number</label>
+                <input
+                  type="text"
+                  value={paymentFormUtr}
+                  onChange={e => setPaymentFormUtr(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono text-slate-800"
+                  placeholder="e.g. UTR12345678"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">UTR / Verification Remarks</label>
+                <textarea
+                  rows={2}
+                  value={paymentFormRemarks}
+                  onChange={e => setPaymentFormRemarks(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  placeholder="Enter tenant notes or audit verification remarks..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xxs font-bold text-slate-700 uppercase tracking-wider mb-1">Screenshot / Receipt Image URL</label>
+                <input
+                  type="text"
+                  value={paymentFormScreenshotUrl}
+                  onChange={e => setPaymentFormScreenshotUrl(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                  placeholder="https://example.com/receipt.jpg"
+                />
+              </div>
+
+              <div className="border-t border-slate-100 pt-5 mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setEditPayment(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-md shadow-blue-600/10"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>
